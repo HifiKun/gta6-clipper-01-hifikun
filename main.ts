@@ -13,23 +13,61 @@
 // in-session with the TTS tool.
 // The video goes up on YouTube as a public Short, its description carrying the
 // bounty's line and the entrant's play code; VIDEO.json names its address and
-// this program copies VIDEO.json from the repository root to /output/VIDEO.json,
-// where the gate reads it. That is all the program has to do: nothing it writes
-// about the video is scored — the house reads the video's views from YouTube.
+// this program validates VIDEO.json and copies it from the repository root to
+// /output/VIDEO.json, where the gate reads it. Validation is strict on purpose:
+// the file must parse as JSON and its `url` must be a non-empty YouTube video
+// address (youtube.com/shorts/, youtube.com/watch?v=, or youtu.be/); a missing,
+// unparsable, or non-YouTube VIDEO.json fails the run with a clear error, so a
+// bad address can never reach the gate. That is all the program has to do:
+// nothing it writes about the video is scored — the house reads the video's
+// views from YouTube.
 //
 // Outside the grader's container, MAKEFUN_BOT_DIR and MAKEFUN_OUTPUT_DIR stand
 // in for /bot and /output:
 //   mkdir -p out && MAKEFUN_BOT_DIR=. MAKEFUN_OUTPUT_DIR=out node main.ts
 
-import { copyFileSync, mkdirSync } from 'node:fs';
+import { copyFileSync, mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const BOT_DIR = process.env.MAKEFUN_BOT_DIR ?? '/bot';
 const OUTPUT_DIR = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
 
+// A YouTube video address: a Short, a watch page, or a short link, with a
+// non-empty video id after the prefix.
+const YOUTUBE_URL = /^(https?:\/\/)?(www\.)?(youtube\.com\/(shorts\/\S+|watch\?v=\S+)|youtu\.be\/\S+)$/;
+
+function fail(message: string): never {
+  console.error(`VIDEO.json invalid: ${message}`);
+  process.exit(1);
+}
+
 mkdirSync(OUTPUT_DIR, { recursive: true });
+
+const videoPath = join(BOT_DIR, 'VIDEO.json');
+let raw: string;
 try {
-  copyFileSync(join(BOT_DIR, 'VIDEO.json'), join(OUTPUT_DIR, 'VIDEO.json'));
+  raw = readFileSync(videoPath, 'utf8');
+} catch (err) {
+  fail(`could not be read from ${videoPath}: ${(err as Error).message}`);
+}
+
+let data: unknown;
+try {
+  data = JSON.parse(raw);
+} catch (err) {
+  fail(`could not be parsed as JSON: ${(err as Error).message}`);
+}
+
+const url = (data as { url?: unknown } | null)?.url;
+if (typeof url !== 'string' || url.trim() === '') {
+  fail('`url` must be a non-empty string');
+}
+if (!YOUTUBE_URL.test(url.trim())) {
+  fail(`\`url\` must be a YouTube video address (youtube.com/shorts/, youtube.com/watch?v=, or youtu.be/), got: ${url}`);
+}
+
+try {
+  copyFileSync(videoPath, join(OUTPUT_DIR, 'VIDEO.json'));
 } catch (err) {
   console.error(`VIDEO.json could not be copied from ${BOT_DIR}: ${(err as Error).message}`);
   process.exit(1);
